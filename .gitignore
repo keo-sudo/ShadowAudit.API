@@ -1,0 +1,25 @@
+# Visual Studio / .NET
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+*.log
+TestResults/
+
+# Secretos y datos locales
+.env
+.env.*
+!.env.example
+secrets.json
+appsettings.*.local.json
+
+# Archivos de prueba con claves
+login.json
+register.json
+prueba.json
+t.json
+reg.json
+mal.json
+bien.json

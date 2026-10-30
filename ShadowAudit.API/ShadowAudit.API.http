@@ -1,0 +1,6 @@
+@ShadowAudit.API_HostAddress = http://localhost:5174
+
+GET {{ShadowAudit.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
