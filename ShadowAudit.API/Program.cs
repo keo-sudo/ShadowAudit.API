@@ -1,4 +1,5 @@
 using Scalar.AspNetCore;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using ShadowAudit.API.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -23,6 +24,25 @@ builder.Services.AddDbContext<ShadowAuditDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddScoped<JwtService>();
+
+// Cifrado de secretos 2FA. Las claves de cifrado se guardan FUERA del proyecto
+// y de la base de datos. En producción, configura "DataProtection:KeysPath"
+// con una carpeta persistente y con copia de seguridad.
+var keysPath = builder.Configuration["DataProtection:KeysPath"]
+               ?? Path.Combine(
+                   Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                   "ShadowAudit", "keys");
+
+var dataProtection = builder.Services.AddDataProtection()
+    .SetApplicationName("ShadowAudit.API")
+    .PersistKeysToFileSystem(new DirectoryInfo(keysPath));
+
+if (OperatingSystem.IsWindows())
+{
+    dataProtection.ProtectKeysWithDpapi();
+}
+
+builder.Services.AddSingleton<TwoFactorSecretProtector>();
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

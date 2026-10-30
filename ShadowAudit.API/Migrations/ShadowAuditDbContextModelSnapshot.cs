@@ -94,8 +94,8 @@ namespace ShadowAudit.API.Migrations
                         .HasColumnType("bigint");
 
                     b.Property<string>("TwoFactorSecret")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
 
                     b.Property<string>("Username")
                         .IsRequired()

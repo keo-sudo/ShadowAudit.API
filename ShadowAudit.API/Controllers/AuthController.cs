@@ -34,11 +34,13 @@ public class AuthController : ControllerBase
 
     private readonly ShadowAuditDbContext _db;
     private readonly JwtService _jwt;
+    private readonly TwoFactorSecretProtector _twoFactor;
 
-    public AuthController(ShadowAuditDbContext db, JwtService jwt)
+    public AuthController(ShadowAuditDbContext db, JwtService jwt, TwoFactorSecretProtector twoFactor)
     {
         _db = db;
         _jwt = jwt;
+        _twoFactor = twoFactor;
     }
 
     [HttpPost("register")]
@@ -102,7 +104,7 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = "Credenciales inválidas." });
         }
 
-        if (user.TwoFactorEnabled && !string.IsNullOrEmpty(user.TwoFactorSecret))
+        if (user.TwoFactorEnabled)
         {
             var code = (request.TwoFactorCode ?? string.Empty).Replace(" ", "").Trim();
 
@@ -112,9 +114,17 @@ public class AuthController : ControllerBase
                 return Unauthorized(new { message = "Se requiere el código 2FA.", twoFactorRequired = true });
             }
 
-            var totp = new Totp(Base32Encoding.ToBytes(user.TwoFactorSecret));
-            var valid = totp.VerifyTotp(code, out long step, VerificationWindow.RfcSpecifiedNetworkDelay)
+            // Si el secreto no se puede descifrar, el 2FA falla de forma cerrada.
+            var secret = _twoFactor.Unprotect(user.TwoFactorSecret);
+
+            long step = 0;
+            var valid = false;
+            if (secret is not null)
+            {
+                var totp = new Totp(Base32Encoding.ToBytes(secret));
+                valid = totp.VerifyTotp(code, out step, VerificationWindow.RfcSpecifiedNetworkDelay)
                         && (user.TwoFactorLastUsedStep is null || step > user.TwoFactorLastUsedStep);
+            }
 
             if (!valid)
             {

@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using OtpNet;
 using QRCoder;
 using ShadowAudit.API.Data;
+using ShadowAudit.API.Services;
 
 namespace ShadowAudit.API.Controllers;
 
@@ -17,10 +18,12 @@ public record VerifyCodeRequest(string Code);
 public class TwoFactorController : ControllerBase
 {
     private readonly ShadowAuditDbContext _db;
+    private readonly TwoFactorSecretProtector _protector;
 
-    public TwoFactorController(ShadowAuditDbContext db)
+    public TwoFactorController(ShadowAuditDbContext db, TwoFactorSecretProtector protector)
     {
         _db = db;
+        _protector = protector;
     }
 
     // Paso A: genera el secreto y el QR (aún NO activa el 2FA)
@@ -36,7 +39,8 @@ public class TwoFactorController : ControllerBase
         var secretBytes = KeyGeneration.GenerateRandomKey(20);
         var secret = Base32Encoding.ToString(secretBytes);
 
-        user.TwoFactorSecret = secret;
+        // El secreto se guarda cifrado; solo se muestra aquí, una vez.
+        user.TwoFactorSecret = _protector.Protect(secret);
         user.TwoFactorLastUsedStep = null;
         await _db.SaveChangesAsync();
 
@@ -66,14 +70,15 @@ public class TwoFactorController : ControllerBase
         if (user.TwoFactorEnabled)
             return Conflict(new { message = "El 2FA ya está activado." });
 
-        if (string.IsNullOrEmpty(user.TwoFactorSecret))
+        var secret = _protector.Unprotect(user.TwoFactorSecret);
+        if (secret is null)
             return BadRequest(new { message = "Primero llama a /api/2fa/setup." });
 
         var code = (request.Code ?? string.Empty).Replace(" ", "").Trim();
         if (code.Length != 6)
             return BadRequest(new { message = "El código debe tener 6 dígitos." });
 
-        var totp = new Totp(Base32Encoding.ToBytes(user.TwoFactorSecret));
+        var totp = new Totp(Base32Encoding.ToBytes(secret));
         if (!totp.VerifyTotp(code, out long step, VerificationWindow.RfcSpecifiedNetworkDelay))
             return BadRequest(new { message = "Código inválido." });
 

@@ -25,7 +25,8 @@ public class User
 
     // --- 2FA (TOTP) ---
     public bool TwoFactorEnabled { get; set; } = false;
-    [MaxLength(128)]
+    // Guarda el secreto CIFRADO con Data Protection, nunca en texto plano
+    [MaxLength(512)]
     public string? TwoFactorSecret { get; set; } = null;
     public long? TwoFactorLastUsedStep { get; set; } = null;
 }
