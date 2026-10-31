@@ -34,6 +34,21 @@ builder.Services.AddHttpClient<PasswordCheckService>(client =>
     client.DefaultRequestHeaders.Add("Add-Padding", "true");
 });
 
+// Cliente para VirusTotal. La clave viene de user-secrets ("VirusTotal:ApiKey"),
+// nunca del código. Plan gratuito: 4 consultas por minuto y 500 por día, solo uso no comercial.
+builder.Services.AddHttpClient<VirusTotalService>(client =>
+{
+    client.BaseAddress = new Uri("https://www.virustotal.com/api/v3/");
+    client.Timeout = TimeSpan.FromSeconds(10);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("ShadowAudit-API");
+
+    var apiKey = builder.Configuration["VirusTotal:ApiKey"];
+    if (!string.IsNullOrWhiteSpace(apiKey))
+    {
+        client.DefaultRequestHeaders.Add("x-apikey", apiKey);
+    }
+});
+
 // Cifrado de secretos 2FA. Las claves de cifrado se guardan FUERA del proyecto
 // y de la base de datos. En producción, configura "DataProtection:KeysPath"
 // con una carpeta persistente y con copia de seguridad.
@@ -89,7 +104,8 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Límite de solicitudes por IP: login/registro (10 por minuto) y revisión de contraseñas (20 por minuto)
+// Límites de solicitudes: login/registro (10 por minuto por IP), contraseñas (20 por minuto por IP)
+// y amenazas (2 por minuto en total, porque toda la API comparte una sola clave de VirusTotal)
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -131,6 +147,18 @@ builder.Services.AddRateLimiter(options =>
                 new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = 20,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0,
+                    AutoReplenishment = true
+                });
+        }
+
+        if (path.StartsWithSegments("/api/threats"))
+        {
+            return RateLimitPartition.GetFixedWindowLimiter("threats:global", _ =>
+                new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 2,
                     Window = TimeSpan.FromMinutes(1),
                     QueueLimit = 0,
                     AutoReplenishment = true
