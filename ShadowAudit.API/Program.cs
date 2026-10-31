@@ -25,6 +25,15 @@ builder.Services.AddDbContext<ShadowAuditDbContext>(options =>
 
 builder.Services.AddScoped<JwtService>();
 
+// Cliente para Have I Been Pwned (consulta de contraseñas filtradas, sin clave de API)
+builder.Services.AddHttpClient<PasswordCheckService>(client =>
+{
+    client.BaseAddress = new Uri("https://api.pwnedpasswords.com/");
+    client.Timeout = TimeSpan.FromSeconds(5);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("ShadowAudit-API");
+    client.DefaultRequestHeaders.Add("Add-Padding", "true");
+});
+
 // Cifrado de secretos 2FA. Las claves de cifrado se guardan FUERA del proyecto
 // y de la base de datos. En producción, configura "DataProtection:KeysPath"
 // con una carpeta persistente y con copia de seguridad.
@@ -80,7 +89,7 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Límite de solicitudes por IP en login y registro
+// Límite de solicitudes por IP: login/registro (10 por minuto) y revisión de contraseñas (20 por minuto)
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -101,16 +110,27 @@ builder.Services.AddRateLimiter(options =>
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
     {
         var path = httpContext.Request.Path;
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
         if (path.StartsWithSegments("/api/auth/login") ||
             path.StartsWithSegments("/api/auth/register"))
         {
-            var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-
             return RateLimitPartition.GetFixedWindowLimiter($"auth:{ip}", _ =>
                 new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = 10,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0,
+                    AutoReplenishment = true
+                });
+        }
+
+        if (path.StartsWithSegments("/api/passwords"))
+        {
+            return RateLimitPartition.GetFixedWindowLimiter($"passwords:{ip}", _ =>
+                new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 20,
                     Window = TimeSpan.FromMinutes(1),
                     QueueLimit = 0,
                     AutoReplenishment = true
