@@ -104,8 +104,9 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Límites de solicitudes: login/registro (10 por minuto por IP), contraseñas (20 por minuto por IP)
-// y amenazas (2 por minuto en total, porque toda la API comparte una sola clave de VirusTotal)
+// Límites de solicitudes: login/registro (10 por minuto por IP), contraseñas y cabeceras de correo
+// (20 por minuto por IP) y amenazas con VirusTotal (2 por minuto en total, porque toda la API
+// comparte una sola clave de VirusTotal)
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -144,6 +145,19 @@ builder.Services.AddRateLimiter(options =>
         if (path.StartsWithSegments("/api/passwords"))
         {
             return RateLimitPartition.GetFixedWindowLimiter($"passwords:{ip}", _ =>
+                new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 20,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0,
+                    AutoReplenishment = true
+                });
+        }
+
+        // Este análisis es local (no usa VirusTotal), por eso va antes que el límite global de /api/threats
+        if (path.StartsWithSegments("/api/threats/email-headers"))
+        {
+            return RateLimitPartition.GetFixedWindowLimiter($"email:{ip}", _ =>
                 new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = 20,
