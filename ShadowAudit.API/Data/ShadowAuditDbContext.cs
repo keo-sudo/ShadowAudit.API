@@ -14,6 +14,8 @@ public class ShadowAuditDbContext : DbContext
 
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
+    public DbSet<RecoveryCode> RecoveryCodes => Set<RecoveryCode>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -32,6 +34,16 @@ public class ShadowAuditDbContext : DbContext
             e.Property(a => a.Action).HasMaxLength(50);
             e.Property(a => a.IpAddress).HasMaxLength(64);
             e.Property(a => a.UserAgent).HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<RecoveryCode>(e =>
+        {
+            e.Property(r => r.CodeHash).HasMaxLength(64).IsRequired();
+            e.HasIndex(r => new { r.UserId, r.CodeHash });
+            e.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(r => r.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

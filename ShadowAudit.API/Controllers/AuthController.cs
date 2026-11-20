@@ -1,5 +1,4 @@
-﻿using OtpNet;
-using System.IdentityModel.Tokens.Jwt;
+﻿using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
@@ -15,16 +14,13 @@ namespace ShadowAudit.API.Controllers;
 [Route("api/auth")]
 public class AuthController : ControllerBase
 {
-    private const int MaxFailedAttempts = 5;
-    private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(15);
-
     // Hash de relleno: se verifica cuando el usuario no existe, para que el
     // tiempo de respuesta sea parecido al de un usuario real.
     private static readonly string DummyHash =
         BCrypt.Net.BCrypt.HashPassword("relleno-para-igualar-tiempos");
 
     // Lista corta de contraseñas muy comunes que cumplirían la política.
-    // La revisión completa contra filtraciones reales llegará con el módulo de contraseñas.
+    // La revisión completa contra filtraciones reales está en el módulo de contraseñas.
     private static readonly HashSet<string> CommonPasswords = new(StringComparer.OrdinalIgnoreCase)
     {
         "Password1234", "Password12345", "Password123!", "Contrasena123",
@@ -90,7 +86,7 @@ public class AuthController : ControllerBase
 
         // Cuenta bloqueada: se responde igual que una clave incorrecta,
         // pero el audit log guarda el motivo real.
-        if (user.LockedUntil.HasValue && user.LockedUntil.Value > DateTime.UtcNow)
+        if (user.IsLocked)
         {
             BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash);
             await WriteAudit(user.Id, email, "LoginBlocked");
@@ -104,55 +100,96 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = "Credenciales inválidas." });
         }
 
+        var usedRecoveryCode = false;
+
         if (user.TwoFactorEnabled)
         {
-            var code = (request.TwoFactorCode ?? string.Empty).Replace(" ", "").Trim();
+            var result = await TwoFactorVerifier.VerifyAsync(_db, _twoFactor, user, request.TwoFactorCode);
 
-            if (code.Length == 0)
+            if (result == TwoFactorResult.Missing)
             {
                 await WriteAudit(user.Id, email, "TwoFactorRequired");
                 return Unauthorized(new { message = "Se requiere el código 2FA.", twoFactorRequired = true });
             }
 
-            // Si el secreto no se puede descifrar, el 2FA falla de forma cerrada.
-            var secret = _twoFactor.Unprotect(user.TwoFactorSecret);
-
-            long step = 0;
-            var valid = false;
-            if (secret is not null)
-            {
-                var totp = new Totp(Base32Encoding.ToBytes(secret));
-                valid = totp.VerifyTotp(code, out step, VerificationWindow.RfcSpecifiedNetworkDelay)
-                        && (user.TwoFactorLastUsedStep is null || step > user.TwoFactorLastUsedStep);
-            }
-
-            if (!valid)
+            if (result == TwoFactorResult.Invalid)
             {
                 await RegisterFailure(user);
                 await WriteAudit(user.Id, email, "LoginFailed2FA");
                 return Unauthorized(new { message = "Código 2FA inválido.", twoFactorRequired = true });
             }
 
-            user.TwoFactorLastUsedStep = step;
+            usedRecoveryCode = result == TwoFactorResult.ValidRecoveryCode;
         }
 
-        user.FailedLoginAttempts = 0;
-        user.LockedUntil = null;
+        user.ClearFailedAttempts();
         await _db.SaveChangesAsync();
 
         await WriteAudit(user.Id, email, "LoginSuccess");
+        if (usedRecoveryCode)
+            await WriteAudit(user.Id, email, "RecoveryCodeUsed");
 
         return Ok(_jwt.GenerateToken(user));
     }
 
+    [Authorize]
+    [HttpPost("change-password")]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+    {
+        var userId = GetCurrentUserId();
+        if (userId is null) return Unauthorized();
+
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        if (user is null) return Unauthorized();
+
+        if (user.IsLocked)
+        {
+            await WriteAudit(user.Id, user.Email, "ChangePasswordBlocked");
+            return Unauthorized(new { message = "Credenciales inválidas." });
+        }
+
+        if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
+        {
+            await RegisterFailure(user);
+            await WriteAudit(user.Id, user.Email, "ChangePasswordFailed");
+            return Unauthorized(new { message = "Credenciales inválidas." });
+        }
+
+        // Se valida la contraseña nueva antes del 2FA, para no gastar un código si es inválida
+        var passwordError = ValidatePassword(request.NewPassword, user.Username, user.Email);
+        if (passwordError is not null)
+            return BadRequest(new { message = passwordError });
+
+        if (BCrypt.Net.BCrypt.Verify(request.NewPassword, user.PasswordHash))
+            return BadRequest(new { message = "La contraseña nueva debe ser distinta de la actual." });
+
+        if (user.TwoFactorEnabled)
+        {
+            var result = await TwoFactorVerifier.VerifyAsync(_db, _twoFactor, user, request.TwoFactorCode);
+
+            if (result == TwoFactorResult.Missing)
+                return Unauthorized(new { message = "Se requiere el código 2FA.", twoFactorRequired = true });
+
+            if (result == TwoFactorResult.Invalid)
+            {
+                await RegisterFailure(user);
+                await WriteAudit(user.Id, user.Email, "ChangePasswordFailed2FA");
+                return Unauthorized(new { message = "Código 2FA inválido.", twoFactorRequired = true });
+            }
+        }
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        user.ClearFailedAttempts();
+        await _db.SaveChangesAsync();
+
+        await WriteAudit(user.Id, user.Email, "PasswordChanged");
+
+        return Ok(new { message = "Contraseña actualizada." });
+    }
+
     private async Task RegisterFailure(User user)
     {
-        user.FailedLoginAttempts++;
-        if (user.FailedLoginAttempts >= MaxFailedAttempts)
-        {
-            user.LockedUntil = DateTime.UtcNow.Add(LockDuration);
-            user.FailedLoginAttempts = 0;
-        }
+        user.RegisterFailedAttempt();
         await _db.SaveChangesAsync();
     }
 

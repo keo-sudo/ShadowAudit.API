@@ -26,7 +26,20 @@ public record LoginRequest(
     [StringLength(128, ErrorMessage = "La contraseña es demasiado larga.")]
     string Password,
 
-    [StringLength(10, ErrorMessage = "El código 2FA es demasiado largo.")]
+    // Código del celular (6 dígitos) o código de recuperación (XXXXX-XXXXX)
+    [StringLength(16, ErrorMessage = "El código 2FA es demasiado largo.")]
+    string? TwoFactorCode = null);
+
+public record ChangePasswordRequest(
+    [Required(ErrorMessage = "La contraseña actual es obligatoria.")]
+    [StringLength(128, ErrorMessage = "La contraseña actual es demasiado larga.")]
+    string CurrentPassword,
+
+    [Required(ErrorMessage = "La contraseña nueva es obligatoria.")]
+    [StringLength(128, ErrorMessage = "La contraseña nueva es demasiado larga.")]
+    string NewPassword,
+
+    [StringLength(16, ErrorMessage = "El código 2FA es demasiado largo.")]
     string? TwoFactorCode = null);
 
 public record AuthResponse(string Token, string Username, string Email, DateTime ExpiresAt);

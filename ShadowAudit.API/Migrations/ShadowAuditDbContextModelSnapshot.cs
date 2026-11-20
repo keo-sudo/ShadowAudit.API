@@ -63,6 +63,33 @@ namespace ShadowAudit.API.Migrations
                     b.ToTable("AuditLogs");
                 });
 
+            modelBuilder.Entity("ShadowAudit.API.Models.RecoveryCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("UsedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "CodeHash");
+
+                    b.ToTable("RecoveryCodes");
+                });
+
             modelBuilder.Entity("ShadowAudit.API.Models.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -111,6 +138,15 @@ namespace ShadowAudit.API.Migrations
                         .IsUnique();
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("ShadowAudit.API.Models.RecoveryCode", b =>
+                {
+                    b.HasOne("ShadowAudit.API.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

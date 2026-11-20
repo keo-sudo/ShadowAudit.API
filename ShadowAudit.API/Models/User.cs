@@ -4,6 +4,9 @@ namespace ShadowAudit.API.Models;
 
 public class User
 {
+    public const int MaxFailedAttempts = 5;
+    public static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(15);
+
     public Guid Id { get; set; } = Guid.NewGuid();
 
     [Required]
@@ -29,4 +32,22 @@ public class User
     [MaxLength(512)]
     public string? TwoFactorSecret { get; set; } = null;
     public long? TwoFactorLastUsedStep { get; set; } = null;
+
+    public bool IsLocked => LockedUntil.HasValue && LockedUntil.Value > DateTime.UtcNow;
+
+    public void RegisterFailedAttempt()
+    {
+        FailedLoginAttempts++;
+        if (FailedLoginAttempts >= MaxFailedAttempts)
+        {
+            LockedUntil = DateTime.UtcNow.Add(LockDuration);
+            FailedLoginAttempts = 0;
+        }
+    }
+
+    public void ClearFailedAttempts()
+    {
+        FailedLoginAttempts = 0;
+        LockedUntil = null;
+    }
 }
