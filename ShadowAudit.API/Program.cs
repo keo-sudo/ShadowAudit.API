@@ -49,6 +49,21 @@ builder.Services.AddHttpClient<VirusTotalService>(client =>
     }
 });
 
+// Cliente para AbuseIPDB. La clave viene de user-secrets ("AbuseIPDB:ApiKey"), nunca del código.
+builder.Services.AddHttpClient<AbuseIpDbService>(client =>
+{
+    client.BaseAddress = new Uri("https://api.abuseipdb.com/api/v2/");
+    client.Timeout = TimeSpan.FromSeconds(10);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("ShadowAudit-API");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+
+    var apiKey = builder.Configuration["AbuseIPDB:ApiKey"];
+    if (!string.IsNullOrWhiteSpace(apiKey))
+    {
+        client.DefaultRequestHeaders.Add("Key", apiKey);
+    }
+});
+
 // Cifrado de secretos 2FA. Las claves de cifrado se guardan FUERA del proyecto
 // y de la base de datos. En producción, configura "DataProtection:KeysPath"
 // con una carpeta persistente y con copia de seguridad.
@@ -105,8 +120,8 @@ builder.Services.AddCors(options =>
 });
 
 // Límites de solicitudes: login/registro (10 por minuto por IP), contraseñas y cabeceras de correo
-// (20 por minuto por IP) y amenazas con VirusTotal (2 por minuto en total, porque toda la API
-// comparte una sola clave de VirusTotal)
+// (20 por minuto por IP), reputación de IPs (10 por minuto en total, una sola clave de AbuseIPDB)
+// y amenazas con VirusTotal (2 por minuto en total, una sola clave de VirusTotal)
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -154,13 +169,26 @@ builder.Services.AddRateLimiter(options =>
                 });
         }
 
-        // Este análisis es local (no usa VirusTotal), por eso va antes que el límite global de /api/threats
+        // Este análisis es local (no usa servicios externos), por eso va antes que el límite global de /api/threats
         if (path.StartsWithSegments("/api/threats/email-headers"))
         {
             return RateLimitPartition.GetFixedWindowLimiter($"email:{ip}", _ =>
                 new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = 20,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0,
+                    AutoReplenishment = true
+                });
+        }
+
+        // Reputación de IPs (AbuseIPDB): una sola clave compartida por toda la API
+        if (path.StartsWithSegments("/api/threats/ip"))
+        {
+            return RateLimitPartition.GetFixedWindowLimiter("abuseipdb:global", _ =>
+                new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 10,
                     Window = TimeSpan.FromMinutes(1),
                     QueueLimit = 0,
                     AutoReplenishment = true
