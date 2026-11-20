@@ -42,4 +42,15 @@ public record ChangePasswordRequest(
     [StringLength(16, ErrorMessage = "El código 2FA es demasiado largo.")]
     string? TwoFactorCode = null);
 
-public record AuthResponse(string Token, string Username, string Email, DateTime ExpiresAt);
+public record RefreshRequest(
+    [Required(ErrorMessage = "El refresh token es obligatorio.")]
+    [StringLength(128, MinimumLength = 20, ErrorMessage = "El refresh token no es válido.")]
+    string RefreshToken);
+
+public record AuthResponse(
+    string Token,
+    string Username,
+    string Email,
+    DateTime ExpiresAt,
+    string RefreshToken,
+    DateTime RefreshExpiresAt);

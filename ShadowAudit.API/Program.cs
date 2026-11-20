@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
+using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using ShadowAudit.API.Services;
@@ -24,6 +25,7 @@ builder.Services.AddDbContext<ShadowAuditDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddScoped<JwtService>();
+builder.Services.AddScoped<SessionService>();
 
 // Cliente para Have I Been Pwned (consulta de contraseñas filtradas, sin clave de API)
 builder.Services.AddHttpClient<PasswordCheckService>(client =>
@@ -96,7 +98,30 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidIssuer = jwtSettings["Issuer"],
             ValidAudience = jwtSettings["Audience"],
             IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(jwtSettings["SecretKey"]!))
+                Encoding.UTF8.GetBytes(jwtSettings["SecretKey"]!)),
+            // Por defecto .NET tolera 5 minutos de margen: un token de 15 minutos valdría 20
+            ClockSkew = TimeSpan.FromSeconds(30)
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            // Además de la firma y la fecha, se comprueba que la sesión del token siga abierta.
+            // Así un cierre de sesión surte efecto al instante.
+            OnTokenValidated = async context =>
+            {
+                var sessionClaim = context.Principal?.FindFirstValue("session_id");
+                if (!Guid.TryParse(sessionClaim, out var sessionId))
+                {
+                    context.Fail("Token sin sesión.");
+                    return;
+                }
+
+                var sessions = context.HttpContext.RequestServices.GetRequiredService<SessionService>();
+                if (!await sessions.IsSessionActiveAsync(sessionId))
+                {
+                    context.Fail("Sesión cerrada o expirada.");
+                }
+            }
         };
     });
 
@@ -119,9 +144,10 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Límites de solicitudes: login/registro (10 por minuto por IP), contraseñas y cabeceras de correo
-// (20 por minuto por IP), reputación de IPs (10 por minuto en total, una sola clave de AbuseIPDB)
-// y amenazas con VirusTotal (2 por minuto en total, una sola clave de VirusTotal)
+// Límites de solicitudes: login/registro (10 por minuto por IP), renovación de sesión (30 por minuto
+// por IP), contraseñas y cabeceras de correo (20 por minuto por IP), reputación de IPs (10 por minuto
+// en total, una sola clave de AbuseIPDB) y amenazas con VirusTotal (2 por minuto en total, una sola
+// clave de VirusTotal)
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -151,6 +177,18 @@ builder.Services.AddRateLimiter(options =>
                 new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = 10,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0,
+                    AutoReplenishment = true
+                });
+        }
+
+        if (path.StartsWithSegments("/api/auth/refresh"))
+        {
+            return RateLimitPartition.GetFixedWindowLimiter($"refresh:{ip}", _ =>
+                new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 30,
                     Window = TimeSpan.FromMinutes(1),
                     QueueLimit = 0,
                     AutoReplenishment = true

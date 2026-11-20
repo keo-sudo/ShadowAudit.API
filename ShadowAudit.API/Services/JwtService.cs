@@ -6,6 +6,8 @@ using ShadowAudit.API.Models;
 
 namespace ShadowAudit.API.Services;
 
+public record AccessToken(string Token, DateTime ExpiresAt);
+
 public class JwtService
 {
     private readonly IConfiguration _config;
@@ -15,7 +17,7 @@ public class JwtService
         _config = config;
     }
 
-    public AuthResponse GenerateToken(User user)
+    public AccessToken GenerateToken(User user, Guid sessionId)
     {
         var jwtSettings = _config.GetSection("JwtSettings");
         var secretKey = jwtSettings["SecretKey"]!;
@@ -27,7 +29,9 @@ public class JwtService
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(JwtRegisteredClaimNames.Email, user.Email),
             new Claim(ClaimTypes.Name, user.Username),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            // Sesión a la que pertenece este token: permite revocarlo al instante
+            new Claim("session_id", sessionId.ToString())
         };
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
@@ -43,6 +47,6 @@ public class JwtService
 
         var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
 
-        return new AuthResponse(tokenString, user.Username, user.Email, expiresAt);
+        return new AccessToken(tokenString, expiresAt);
     }
 }

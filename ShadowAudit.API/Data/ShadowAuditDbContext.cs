@@ -16,6 +16,8 @@ public class ShadowAuditDbContext : DbContext
 
     public DbSet<RecoveryCode> RecoveryCodes => Set<RecoveryCode>();
 
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -40,6 +42,18 @@ public class ShadowAuditDbContext : DbContext
         {
             e.Property(r => r.CodeHash).HasMaxLength(64).IsRequired();
             e.HasIndex(r => new { r.UserId, r.CodeHash });
+            e.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(r => r.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<RefreshToken>(e =>
+        {
+            e.Property(r => r.TokenHash).HasMaxLength(64).IsRequired();
+            e.HasIndex(r => r.TokenHash).IsUnique();
+            e.HasIndex(r => r.FamilyId);
+            e.HasIndex(r => r.UserId);
             e.HasOne<User>()
                 .WithMany()
                 .HasForeignKey(r => r.UserId)

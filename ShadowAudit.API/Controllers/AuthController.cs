@@ -29,13 +29,13 @@ public class AuthController : ControllerBase
     };
 
     private readonly ShadowAuditDbContext _db;
-    private readonly JwtService _jwt;
+    private readonly SessionService _sessions;
     private readonly TwoFactorSecretProtector _twoFactor;
 
-    public AuthController(ShadowAuditDbContext db, JwtService jwt, TwoFactorSecretProtector twoFactor)
+    public AuthController(ShadowAuditDbContext db, SessionService sessions, TwoFactorSecretProtector twoFactor)
     {
         _db = db;
-        _jwt = jwt;
+        _sessions = sessions;
         _twoFactor = twoFactor;
     }
 
@@ -129,7 +129,51 @@ public class AuthController : ControllerBase
         if (usedRecoveryCode)
             await WriteAudit(user.Id, email, "RecoveryCodeUsed");
 
-        return Ok(_jwt.GenerateToken(user));
+        return Ok(await _sessions.CreateSessionAsync(user));
+    }
+
+    // Cambia un refresh token por un par nuevo (token de acceso y refresh token)
+    [HttpPost("refresh")]
+    public async Task<IActionResult> Refresh([FromBody] RefreshRequest request)
+    {
+        var outcome = await _sessions.RefreshAsync(request.RefreshToken.Trim());
+
+        if (outcome.Status == RefreshStatus.Ok)
+            return Ok(outcome.Response);
+
+        if (outcome.Status == RefreshStatus.ReuseDetected)
+            await WriteAudit(outcome.UserId, outcome.Email ?? string.Empty, "RefreshTokenReuse");
+
+        return Unauthorized(new { message = "Sesión inválida o expirada. Inicia sesión de nuevo." });
+    }
+
+    // Cierra la sesión actual
+    [Authorize]
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout()
+    {
+        var userId = GetCurrentUserId();
+        var sessionId = GetSessionId();
+        if (userId is null || sessionId is null) return Unauthorized();
+
+        await _sessions.RevokeSessionAsync(sessionId.Value);
+        await WriteAuditForUser(userId.Value, "Logout");
+
+        return Ok(new { message = "Sesión cerrada." });
+    }
+
+    // Cierra todas las sesiones de la cuenta
+    [Authorize]
+    [HttpPost("logout-all")]
+    public async Task<IActionResult> LogoutAll()
+    {
+        var userId = GetCurrentUserId();
+        if (userId is null) return Unauthorized();
+
+        await _sessions.RevokeAllAsync(userId.Value);
+        await WriteAuditForUser(userId.Value, "LogoutAll");
+
+        return Ok(new { message = "Todas las sesiones fueron cerradas." });
     }
 
     [Authorize]
@@ -182,9 +226,12 @@ public class AuthController : ControllerBase
         user.ClearFailedAttempts();
         await _db.SaveChangesAsync();
 
+        // Se cierran las demás sesiones: si alguien más tenía la contraseña vieja, queda fuera
+        await _sessions.RevokeAllAsync(user.Id, GetSessionId());
+
         await WriteAudit(user.Id, user.Email, "PasswordChanged");
 
-        return Ok(new { message = "Contraseña actualizada." });
+        return Ok(new { message = "Contraseña actualizada. Las demás sesiones fueron cerradas." });
     }
 
     private async Task RegisterFailure(User user)
@@ -254,6 +301,19 @@ public class AuthController : ControllerBase
         var value = User.FindFirstValue(ClaimTypes.NameIdentifier)
                     ?? User.FindFirstValue(JwtRegisteredClaimNames.Sub);
         return Guid.TryParse(value, out var id) ? id : null;
+    }
+
+    private Guid? GetSessionId() =>
+        Guid.TryParse(User.FindFirstValue("session_id"), out var id) ? id : null;
+
+    private async Task WriteAuditForUser(Guid userId, string action)
+    {
+        var email = await _db.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => u.Email)
+            .FirstOrDefaultAsync() ?? string.Empty;
+
+        await WriteAudit(userId, email, action);
     }
 
     private async Task WriteAudit(Guid? userId, string email, string action)
