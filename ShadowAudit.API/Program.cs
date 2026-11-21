@@ -27,6 +27,9 @@ builder.Services.AddDbContext<ShadowAuditDbContext>(options =>
 builder.Services.AddScoped<JwtService>();
 builder.Services.AddScoped<SessionService>();
 
+// Limpieza periódica de refresh tokens vencidos hace más de 30 días
+builder.Services.AddHostedService<RefreshTokenCleanupService>();
+
 // Cliente para Have I Been Pwned (consulta de contraseñas filtradas, sin clave de API)
 builder.Services.AddHttpClient<PasswordCheckService>(client =>
 {

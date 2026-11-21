@@ -8,7 +8,7 @@ public class RefreshToken
     public Guid UserId { get; set; }
     public Guid FamilyId { get; set; }
 
-    // Huella SHA-256 del token. El token en claro nunca se guarda.
+    // Huella SHA-256 del token. El token en claro nunca se guarda.a
     public string TokenHash { get; set; } = string.Empty;
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
