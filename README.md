@@ -16,6 +16,7 @@ Todo se audita sobre **cuentas y dispositivos propios**, de forma ética y legal
 | **Registro de auditoría** | Cada evento de seguridad (registro, login, intentos fallidos, consultas) queda anotado con hora, IP y navegador. |
 | **Auditor de contraseñas** | Comprueba si una contraseña apareció en filtraciones reales (Have I Been Pwned) y estima su fortaleza. |
 | **Detector de amenazas** | Analiza URLs y huellas de archivos con VirusTotal, la reputación de una IP con AbuseIPDB, y cabeceras de correo para detectar phishing (SPF, DKIM, DMARC y suplantación). |
+| **Reporte de exposición** | Junta los resultados que el usuario decide guardar en un puntaje de 0 a 100, con lo más urgente primero y recomendaciones. |
 
 ### Endpoints
 
@@ -39,65 +40,19 @@ Todo se audita sobre **cuentas y dispositivos propios**, de forma ética y legal
 | GET | `/api/threats/file/{sha256}` | Consultar la huella de un archivo (el archivo nunca se sube) |
 | POST | `/api/threats/email-headers` | Analizar las cabeceras de un correo (SPF, DKIM, DMARC y suplantación) |
 | GET | `/api/threats/ip/{ip}` | Consultar la reputación de una IP pública |
+| GET | `/api/report` | Reporte de exposición: puntaje de 0 a 100, lo más urgente primero y recomendaciones |
+| GET | `/api/findings` | Lista de hallazgos guardados (`?includeResolved=true` incluye los resueltos) |
+| POST | `/api/findings/{id}/resolve` | Marcar un hallazgo como resuelto (deja de contar en el puntaje) |
+| DELETE | `/api/findings/{id}` | Borrar un hallazgo |
 
 La documentación interactiva está en `/scalar` cuando la API corre en modo desarrollo.
 
-## Decisiones de seguridad
+## Reporte y puntaje de riesgo
 
-- **Contraseñas:** BCrypt. La política exige 12 o más caracteres, mayúscula, minúscula y número, y rechaza claves comunes o que contengan el usuario o el correo.
-- **Fuerza bruta:** la cuenta se bloquea 15 minutos tras 5 intentos fallidos. Un código 2FA incorrecto, o un error de contraseña al cambiarla o al desactivar el 2FA, también cuenta.
-- **Sin filtrar cuentas:** un correo inexistente, una cuenta bloqueada y una clave incorrecta responden igual, y se iguala el tiempo de respuesta.
-- **Sesiones revocables:** el token de acceso dura 15 minutos y lleva el identificador de su sesión, que se comprueba en cada petición. Un cierre de sesión surte efecto al instante.
-- **Refresh tokens rotativos:** cada renovación entrega uno nuevo e invalida el anterior. Si un token ya usado vuelve a presentarse, se asume robo y se cierra toda la sesión. Solo se guarda su huella SHA-256.
-- **2FA:** los códigos de recuperación son de un solo uso y se guardan como huella. Los secretos TOTP se cifran con ASP.NET Data Protection y las claves de cifrado quedan fuera del proyecto y de la base de datos.
-- **Límite de solicitudes** por IP en login, registro, renovación de sesión, contraseñas y cabeceras de correo, y límites globales para proteger la cuota de VirusTotal y AbuseIPDB.
-- **Contraseñas auditadas con k-anonimato:** solo salen 5 caracteres de la huella SHA-1. La contraseña nunca sale del servidor y **no se guarda ni se registra**.
-- **Datos analizados no guardados:** ni las direcciones, huellas, IPs y cabeceras de correo que se consultan ni las contraseñas quedan en la base de datos. El registro de auditoría solo anota que hubo una consulta.
-- **Falla segura:** si un servicio externo no responde, la API lo dice y nunca declara "seguro".
-- **Cabeceras de seguridad HTTP**, errores genéricos hacia el cliente (el detalle queda solo en el log) y CORS cerrado por defecto.
-- **Secretos fuera del repositorio:** claves JWT, contraseña de la base de datos y claves de los servicios externos en user-secrets o variables de entorno. La base de datos escucha solo en `127.0.0.1`.
-- **Entradas validadas:** las URLs solo aceptan `http`/`https`, sin usuario y contraseña dentro y sin direcciones locales; las IPs consultadas deben ser públicas; las cabeceras de correo tienen un tamaño máximo.
+Las consultas de contraseñas, URLs, archivos, correos e IPs aceptan un campo opcional `label`. Si lo envías, el resultado se guarda como **hallazgo** para el reporte; si no, no se guarda nada.
 
-## Tecnologías
+```json
+POST /api/passwords/check
+{ "password": "tu-contraseña", "label": "clave del correo" }
 
-ASP.NET Core (.NET 10) · Entity Framework Core · PostgreSQL 17 (Docker) · JWT · BCrypt · OtpNet y QRCoder (2FA) · Scalar (documentación OpenAPI)
-
-## Cómo correrlo
-
-Necesitas el SDK de .NET 10, Docker Desktop y, para los comandos de migración, la herramienta `dotnet-ef` (`dotnet tool install --global dotnet-ef`).
-
-```powershell
-cd ShadowAudit.API
-
-# 1. Contraseña de la base de datos (elige una larga y aleatoria)
-"POSTGRES_PASSWORD=TU_CONTRASEÑA" | Out-File -Encoding ascii .env
-
-# 2. Base de datos
-docker compose up -d
-
-# 3. Secretos de la API (no se guardan en el repositorio)
-dotnet user-secrets set "JwtSettings:SecretKey" "UNA_CLAVE_ALEATORIA_DE_AL_MENOS_64_CARACTERES"
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=shadowaudit;Username=postgres;Password=TU_CONTRASEÑA"
-dotnet user-secrets set "VirusTotal:ApiKey" "TU_CLAVE_DE_VIRUSTOTAL"   # opcional: solo para URLs y archivos
-dotnet user-secrets set "AbuseIPDB:ApiKey" "TU_CLAVE_DE_ABUSEIPDB"     # opcional: solo para reputación de IPs
-
-# 4. Tablas y arranque
-dotnet ef database update
-dotnet run --launch-profile https
-```
-
-Luego abre `https://localhost:7280/scalar`.
-
-Sin las claves de VirusTotal y AbuseIPDB, la API funciona igual: esas consultas responden que el servicio no está configurado, y el resto (incluido el análisis de cabeceras de correo) no las necesita. La API de VirusTotal en su plan gratuito permite 4 consultas por minuto y 500 por día, y es solo para uso no comercial.
-
-## Hoja de ruta
-
-- [x] Autenticación, 2FA con códigos de recuperación, sesiones revocables y registro de auditoría
-- [x] Auditor de contraseñas (Have I Been Pwned)
-- [x] Detector de amenazas: URLs, archivos, IPs y cabeceras de correo
-- [ ] Reporte final con puntaje de riesgo
-- [ ] Huella digital (OSINT sobre cuentas propias)
-- [ ] Auditor de red y wifi propios
-- [ ] Escáner de vulnerabilidades web para sitios propios
-- [ ] Detección de dispositivos IoT propios expuestos
-- [ ] Pruebas automáticas, CI/CD y despliegue
+GET
