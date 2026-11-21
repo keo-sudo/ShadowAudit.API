@@ -16,7 +16,12 @@ namespace ShadowAudit.API.Controllers;
 public record ThreatUrlRequest(
     [Required(ErrorMessage = "La dirección es obligatoria.")]
     [StringLength(2048, MinimumLength = 4, ErrorMessage = "La dirección debe tener entre 4 y 2048 caracteres.")]
-    string Url);
+    string Url,
+
+    // Opcional: si lo mandas, el resultado se guarda como hallazgo para el reporte
+    // (solo el riesgo y esta etiqueta; la dirección NO se guarda).
+    [StringLength(100, ErrorMessage = "La etiqueta no puede pasar de 100 caracteres.")]
+    string? Label = null);
 
 [ApiController]
 [Authorize]
@@ -43,18 +48,24 @@ public class ThreatsController : ControllerBase
         var error = ValidateUrl(request.Url.Trim(), out var normalized, out var hasQuery);
         if (error is not null) return BadRequest(new { message = error });
 
+        var labelError = FindingStore.ValidateLabel(
+            request.Label, out var findingLabel,
+            request.Url.Trim(), normalized, new Uri(normalized).DnsSafeHost);
+        if (labelError is not null) return BadRequest(new { message = labelError });
+
         var report = await _vt.CheckUrlAsync(normalized, ct);
+        var finding = await SaveFindingAsync(report, FindingSource.Url, findingLabel, userId.Value, ct);
         await WriteAudit(userId.Value, "ThreatCheckUrl");
 
         var note = hasQuery
             ? "La dirección tiene parámetros. VirusTotal puede hacer visibles para otros los enlaces que se analizan: evita enlaces con datos privados."
             : null;
 
-        return BuildResponse(report, note);
+        return BuildResponse(report, note, finding);
     }
 
     [HttpGet("file/{sha256}")]
-    public async Task<IActionResult> CheckFile(string sha256, CancellationToken ct)
+    public async Task<IActionResult> CheckFile(string sha256, [FromQuery] string? label, CancellationToken ct)
     {
         var userId = GetCurrentUserId();
         if (userId is null) return Unauthorized();
@@ -62,13 +73,34 @@ public class ThreatsController : ControllerBase
         if (!Sha256Regex.IsMatch(sha256))
             return BadRequest(new { message = "La huella debe ser un SHA-256: 64 caracteres hexadecimales." });
 
+        var labelError = FindingStore.ValidateLabel(label, out var findingLabel, sha256);
+        if (labelError is not null) return BadRequest(new { message = labelError });
+
         var report = await _vt.CheckFileAsync(sha256, ct);
+        var finding = await SaveFindingAsync(report, FindingSource.File, findingLabel, userId.Value, ct);
         await WriteAudit(userId.Value, "ThreatCheckFile");
 
-        return BuildResponse(report, null);
+        return BuildResponse(report, null, finding);
     }
 
-    private IActionResult BuildResponse(VtReport report, string? note)
+    // Guarda el hallazgo solo si el usuario mandó etiqueta y VirusTotal dio un resultado.
+    private async Task<FindingSaveResult?> SaveFindingAsync(
+        VtReport report, string source, string? findingLabel, Guid userId, CancellationToken ct)
+    {
+        if (findingLabel is null) return null;
+
+        if (report.Status != VtStatus.Found)
+        {
+            return new FindingSaveResult(false, null, null,
+                "Todavía no hay un resultado de VirusTotal para guardar. Vuelve a consultar con la etiqueta cuando termine el análisis.");
+        }
+
+        var (risk, _) = Assess(report.Stats!);
+        return await FindingStore.SaveAsync(
+            _db, userId, source, RiskNormalizer.FromText(risk), findingLabel, ct);
+    }
+
+    private IActionResult BuildResponse(VtReport report, string? note, FindingSaveResult? finding)
     {
         switch (report.Status)
         {
@@ -93,7 +125,8 @@ public class ThreatsController : ControllerBase
                         lastAnalysisUtc = report.LastAnalysisUtc,
                         fileType = report.TypeDescription,
                         size = report.Size,
-                        note
+                        note,
+                        finding
                     });
                 }
 
@@ -102,13 +135,15 @@ public class ThreatsController : ControllerBase
                 {
                     status = "analyzing",
                     message = "VirusTotal está analizando este elemento. Vuelve a consultar en un minuto.",
-                    note
+                    note,
+                    finding
                 });
 
             case VtStatus.NotFound:
                 return NotFound(new
                 {
-                    message = "VirusTotal no conoce este archivo. Esto NO significa que sea seguro."
+                    message = "VirusTotal no conoce este archivo. Esto NO significa que sea seguro.",
+                    finding
                 });
 
             case VtStatus.RateLimited:

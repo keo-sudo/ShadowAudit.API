@@ -13,7 +13,12 @@ namespace ShadowAudit.API.Controllers;
 public record PasswordCheckRequest(
     [Required(ErrorMessage = "La contraseña es obligatoria.")]
     [StringLength(128, MinimumLength = 1, ErrorMessage = "La contraseña debe tener entre 1 y 128 caracteres.")]
-    string Password);
+    string Password,
+
+    // Opcional: si lo mandas, el resultado se guarda como hallazgo para el reporte
+    // (solo el riesgo y esta etiqueta; la contraseña NUNCA se guarda).
+    [StringLength(100, ErrorMessage = "La etiqueta no puede pasar de 100 caracteres.")]
+    string? Label = null);
 
 [ApiController]
 [Authorize]
@@ -34,6 +39,9 @@ public class PasswordsController : ControllerBase
     {
         var userId = GetCurrentUserId();
         if (userId is null) return Unauthorized();
+
+        var labelError = FindingStore.ValidateLabel(request.Label, out var findingLabel, request.Password);
+        if (labelError is not null) return BadRequest(new { message = labelError });
 
         var breach = await _checker.CheckBreachAsync(request.Password, ct);
         var strength = PasswordCheckService.EvaluateStrength(request.Password);
@@ -81,6 +89,23 @@ public class PasswordsController : ControllerBase
         recommendations.Add("Un gestor de contraseñas te permite tener una clave larga y distinta en cada cuenta.");
         recommendations.Add("Activa la verificación en dos pasos en tus cuentas importantes.");
 
+        // Hallazgo para el reporte (solo si el usuario mandó una etiqueta)
+        FindingSaveResult? finding = null;
+        if (findingLabel is not null)
+        {
+            if (breach.Breached is null)
+            {
+                finding = new FindingSaveResult(false, null, null,
+                    "No se pudo verificar contra filtraciones, así que no se guardó el hallazgo. Vuelve a intentarlo.");
+            }
+            else
+            {
+                var risk = RiskNormalizer.FromPassword(score, breach.Breached);
+                finding = await FindingStore.SaveAsync(
+                    _db, userId.Value, FindingSource.Password, risk, findingLabel, ct);
+            }
+        }
+
         return Ok(new
         {
             breached = breach.Breached,
@@ -93,7 +118,8 @@ public class PasswordsController : ControllerBase
                 issues
             },
             verdict,
-            recommendations
+            recommendations,
+            finding
         });
     }
 

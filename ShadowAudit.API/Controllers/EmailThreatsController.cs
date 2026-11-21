@@ -13,7 +13,12 @@ namespace ShadowAudit.API.Controllers;
 public record EmailHeadersRequest(
     [Required(ErrorMessage = "Las cabeceras son obligatorias.")]
     [StringLength(65536, MinimumLength = 20, ErrorMessage = "Las cabeceras deben tener entre 20 y 65536 caracteres.")]
-    string Headers);
+    string Headers,
+
+    // Opcional: si lo mandas, el resultado se guarda como hallazgo para el reporte
+    // (solo el riesgo y esta etiqueta; las cabeceras NO se guardan).
+    [StringLength(100, ErrorMessage = "La etiqueta no puede pasar de 100 caracteres.")]
+    string? Label = null);
 
 [ApiController]
 [Authorize]
@@ -29,14 +34,25 @@ public class EmailThreatsController : ControllerBase
 
     [HttpPost("email-headers")]
     [RequestSizeLimit(131072)]
-    public async Task<IActionResult> AnalyzeHeaders([FromBody] EmailHeadersRequest request)
+    public async Task<IActionResult> AnalyzeHeaders([FromBody] EmailHeadersRequest request, CancellationToken ct)
     {
         var userId = GetCurrentUserId();
         if (userId is null) return Unauthorized();
 
+        var labelError = FindingStore.ValidateLabel(request.Label, out var findingLabel);
+        if (labelError is not null) return BadRequest(new { message = labelError });
+
         var analysis = EmailHeaderAnalyzer.Analyze(request.Headers);
 
         await WriteAudit(userId.Value);
+
+        FindingSaveResult? finding = null;
+        if (findingLabel is not null)
+        {
+            finding = await FindingStore.SaveAsync(
+                _db, userId.Value, FindingSource.Email,
+                RiskNormalizer.FromText(Convert.ToString(analysis.Risk)), findingLabel, ct);
+        }
 
         return Ok(new
         {
@@ -64,7 +80,8 @@ public class EmailThreatsController : ControllerBase
                 publicIps = analysis.PublicIps
             },
             analysis.Findings,
-            note = "SPF, DKIM y DMARC solo son confiables si los anotó tu propio proveedor de correo (la cabecera de más arriba). El análisis no revisa el contenido, los enlaces ni los adjuntos."
+            note = "SPF, DKIM y DMARC solo son confiables si los anotó tu propio proveedor de correo (la cabecera de más arriba). El análisis no revisa el contenido, los enlaces ni los adjuntos.",
+            finding
         });
     }
 

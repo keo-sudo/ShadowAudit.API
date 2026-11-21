@@ -63,6 +63,43 @@ namespace ShadowAudit.API.Migrations
                     b.ToTable("AuditLogs");
                 });
 
+            modelBuilder.Entity("ShadowAudit.API.Models.ExposureFinding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("ResolvedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Risk")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "ResolvedAtUtc");
+
+                    b.ToTable("ExposureFindings");
+                });
+
             modelBuilder.Entity("ShadowAudit.API.Models.RecoveryCode", b =>
                 {
                     b.Property<Guid>("Id")
@@ -179,6 +216,15 @@ namespace ShadowAudit.API.Migrations
                         .IsUnique();
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("ShadowAudit.API.Models.ExposureFinding", b =>
+                {
+                    b.HasOne("ShadowAudit.API.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ShadowAudit.API.Models.RecoveryCode", b =>

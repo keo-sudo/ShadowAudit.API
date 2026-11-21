@@ -25,8 +25,10 @@ public class IpThreatsController : ControllerBase
         _db = db;
     }
 
+    // "label" es opcional: si lo mandas, el resultado se guarda como hallazgo para el reporte
+    // (solo el riesgo y la etiqueta; la IP NO se guarda).
     [HttpGet("ip/{ip}")]
-    public async Task<IActionResult> CheckIp(string ip, CancellationToken ct)
+    public async Task<IActionResult> CheckIp(string ip, [FromQuery] string? label, CancellationToken ct)
     {
         var userId = GetCurrentUserId();
         if (userId is null) return Unauthorized();
@@ -37,6 +39,9 @@ public class IpThreatsController : ControllerBase
         if (!IsPublic(address))
             return BadRequest(new { message = "Solo se pueden consultar IPs públicas de internet, no locales, privadas, de documentación ni reservadas." });
 
+        var labelError = FindingStore.ValidateLabel(label, out var findingLabel, ip, address.ToString());
+        if (labelError is not null) return BadRequest(new { message = labelError });
+
         var report = await _abuse.CheckIpAsync(address.ToString(), ct);
         await WriteAudit(userId.Value);
 
@@ -45,6 +50,13 @@ public class IpThreatsController : ControllerBase
             case AbuseStatus.Found:
                 {
                     var (risk, verdict) = Assess(report);
+
+                    FindingSaveResult? finding = null;
+                    if (findingLabel is not null)
+                    {
+                        finding = await FindingStore.SaveAsync(
+                            _db, userId.Value, FindingSource.Ip, RiskNormalizer.FromText(risk), findingLabel, ct);
+                    }
 
                     return Ok(new
                     {
@@ -61,7 +73,8 @@ public class IpThreatsController : ControllerBase
                         domain = report.Domain,
                         isTor = report.IsTor,
                         isWhitelisted = report.IsWhitelisted,
-                        window = "últimos 90 días"
+                        window = "últimos 90 días",
+                        finding
                     });
                 }
 

@@ -18,6 +18,8 @@ public class ShadowAuditDbContext : DbContext
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<ExposureFinding> ExposureFindings => Set<ExposureFinding>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -57,6 +59,18 @@ public class ShadowAuditDbContext : DbContext
             e.HasOne<User>()
                 .WithMany()
                 .HasForeignKey(r => r.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ExposureFinding>(e =>
+        {
+            e.Property(f => f.Source).HasMaxLength(20).IsRequired();
+            e.Property(f => f.Risk).HasMaxLength(10).IsRequired();
+            e.Property(f => f.Label).HasMaxLength(100).IsRequired();
+            e.HasIndex(f => new { f.UserId, f.ResolvedAtUtc });
+            e.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(f => f.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }
