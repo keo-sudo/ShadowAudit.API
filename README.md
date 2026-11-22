@@ -105,42 +105,102 @@ Un solo hallazgo de riesgo alto ya da 50; dos dan 75. Si no hay hallazgos, el ni
 - **Límite de solicitudes** por IP en login, registro, renovación de sesión, contraseñas y cabeceras de correo, y límites globales para proteger la cuota de VirusTotal y AbuseIPDB.
 - **Contraseñas auditadas con k-anonimato:** solo salen 5 caracteres de la huella SHA-1. La contraseña nunca sale del servidor y **no se guarda ni se registra**.
 - **Datos analizados no guardados:** ni las direcciones, huellas, IPs y cabeceras de correo que se consultan ni las contraseñas quedan en la base de datos. El registro de auditoría solo anota que hubo una consulta. Solo si envías una etiqueta se guarda un hallazgo, con su nivel de riesgo y esa etiqueta, nunca el dato consultado.
+- **Logs sin datos sensibles (Serilog):** una línea por petición con método, ruta, estado, duración e IP. No se registran cuerpos ni query strings, y los logs de `HttpClient` están silenciados para que no quede rastro de qué URL, hash o IP se consultó a los servicios externos. En producción salen en JSON.
 - **Falla segura:** si un servicio externo no responde, la API lo dice y nunca declara "seguro".
 - **Cabeceras de seguridad HTTP**, errores genéricos hacia el cliente (el detalle queda solo en el log) y CORS cerrado por defecto.
-- **Secretos fuera del repositorio:** claves JWT, contraseña de la base de datos y claves de los servicios externos en user-secrets o variables de entorno. La base de datos escucha solo en `127.0.0.1`.
+- **Contenedor sin root:** la imagen de Docker ejecuta la API con un usuario sin privilegios.
+- **Secretos fuera del repositorio:** claves JWT, contraseña de la base de datos y claves de los servicios externos en user-secrets o variables de entorno (el archivo `.env` está en `.gitignore`). La base de datos nunca se expone fuera de tu equipo.
 - **Entradas validadas:** las URLs solo aceptan `http`/`https`, sin usuario y contraseña dentro y sin direcciones locales; las IPs consultadas deben ser públicas; las cabeceras de correo tienen un tamaño máximo; las etiquetas de los hallazgos tienen un largo máximo y no admiten el dato consultado.
+
+## Pruebas
+
+Más de 150 pruebas automáticas (xUnit):
+
+- **Unitarias:** puntaje y normalización de riesgo, validación de etiquetas, bloqueo por fuerza bruta, tokens JWT, fortaleza de contraseñas y los tres servicios externos (VirusTotal, AbuseIPDB y Have I Been Pwned) con respuestas simuladas: sin internet y sin claves.
+- **Integración:** la API completa contra una base **PostgreSQL real y temporal** (Testcontainers), con todas las migraciones reales y claves falsas. Cubren registro, login, bloqueo, refresh con rotación y reutilización, cierre de sesiones, 2FA con códigos de recuperación, cifrado en la base, hallazgos, reporte, aislamiento entre usuarios, límites de solicitudes y cabeceras de seguridad.
+
+```powershell
+dotnet test    # requiere Docker abierto
+```
+
+## Integración continua
+
+Cada `push` y cada pull request a `main` pasan por GitHub Actions (`.github/workflows/ci.yml`): restaura, compila en Release y corre todas las pruebas. La insignia de arriba muestra el estado.
 
 ## Tecnologías
 
-ASP.NET Core (.NET 10) · Entity Framework Core · PostgreSQL 17 (Docker) · JWT · BCrypt · OtpNet y QRCoder (2FA) · Scalar (documentación OpenAPI)
+ASP.NET Core (.NET 10) · Entity Framework Core · PostgreSQL 17 · JWT · BCrypt · OtpNet y QRCoder (2FA) · Serilog · Scalar (documentación OpenAPI) · Docker y Docker Compose · xUnit y Testcontainers · GitHub Actions
 
 ## Cómo correrlo
 
-Necesitas el SDK de .NET 10, Docker Desktop y, para los comandos de migración, la herramienta `dotnet-ef` (`dotnet tool install --global dotnet-ef`).
+Necesitas Docker Desktop. Para desarrollar también necesitas el SDK de .NET 10 y la herramienta `dotnet-ef` (`dotnet tool install --global dotnet-ef`).
+
+### Con Docker (todo en contenedores)
+
+Levanta la API y PostgreSQL con un solo comando. Las migraciones se aplican solas al arrancar.
 
 ```powershell
 cd ShadowAudit.API
 
-# 1. Contraseña de la base de datos (elige una larga y aleatoria)
-"POSTGRES_PASSWORD=TU_CONTRASEÑA" | Out-File -Encoding ascii .env
+# 1. Archivo .env con valores aleatorios (no se sube al repositorio)
+$b = New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+$p = New-Object byte[] 24; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($p)
+@"
+POSTGRES_PASSWORD=$(-join ($p | ForEach-Object { $_.ToString('x2') }))
+JWT_SECRET_KEY=$([Convert]::ToBase64String($b))
+VIRUSTOTAL_API_KEY=
+ABUSEIPDB_API_KEY=
+"@ | Out-File -Encoding ascii .env
 
-# 2. Base de datos
-docker compose up -d
+# 2. Construir y levantar
+docker compose up -d --build
+```
 
-# 3. Secretos de la API (no se guardan en el repositorio)
-dotnet user-secrets set "JwtSettings:SecretKey" "UNA_CLAVE_ALEATORIA_DE_AL_MENOS_64_CARACTERES"
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=shadowaudit;Username=postgres;Password=TU_CONTRASEÑA"
-dotnet user-secrets set "VirusTotal:ApiKey" "TU_CLAVE_DE_VIRUSTOTAL"   # opcional: solo para URLs y archivos
-dotnet user-secrets set "AbuseIPDB:ApiKey" "TU_CLAVE_DE_ABUSEIPDB"     # opcional: solo para reputación de IPs
+La API queda en `http://localhost:8080` (solo accesible desde tu equipo). La documentación de Scalar no está disponible en este modo porque solo existe en desarrollo. Las claves de VirusTotal y AbuseIPDB son opcionales: pégalas en `.env` si las tienes. En Linux o macOS puedes generar los valores con `openssl rand -base64 48`.
 
-# 4. Tablas y arranque
-dotnet ef database update
-dotnet run --launch-profile https
+Para apagarlo: `docker compose down` (conserva los datos) o `docker compose down -v` (borra también la base y las claves de cifrado).
+
+> En Linux, las claves de Data Protection se guardan en el volumen `dpkeys` sin cifrar (Windows las protege con DPAPI). Protege ese volumen y hazle copia de seguridad: sin esas claves no se pueden descifrar los secretos 2FA.
+
+### Para desarrollar (Visual Studio o `dotnet run`)
+
+```powershell
+cd ShadowAudit.API
+
+# 1. Base de datos de desarrollo (puerto solo en 127.0.0.1)
+docker run -d --name shadowaudit-db `
+  -e POSTGRES_DB=shadowaudit -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=TU_CONTRASEÑA `
+  -p 127.0.0.1:5432:5432 -v shadowaudit-dev-pgdata:/var/lib/postgresql/data `
+  postgres:17-alpine
+
+# 2. Secretos de la API (no se guardan en el repositorio)
+dotnet user-secrets set "JwtSettings:SecretKey" "UNA_CLAVE_ALEATORIA_DE_AL_MENOS_64_CARACTERES" --project ShadowAudit.API
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=shadowaudit;Username=postgres;Password=TU_CONTRASEÑA" --project ShadowAudit.API
+dotnet user-secrets set "VirusTotal:ApiKey" "TU_CLAVE_DE_VIRUSTOTAL" --project ShadowAudit.API   # opcional: solo para URLs y archivos
+dotnet user-secrets set "AbuseIPDB:ApiKey" "TU_CLAVE_DE_ABUSEIPDB" --project ShadowAudit.API     # opcional: solo para reputación de IPs
+
+# 3. Tablas y arranque
+dotnet ef database update --project ShadowAudit.API
+dotnet run --project ShadowAudit.API --launch-profile https
 ```
 
 Luego abre `https://localhost:7280/scalar`.
 
 Sin las claves de VirusTotal y AbuseIPDB, la API funciona igual: esas consultas responden que el servicio no está configurado, y el resto (incluido el análisis de cabeceras de correo) no las necesita. La API de VirusTotal en su plan gratuito permite 4 consultas por minuto y 500 por día, y es solo para uso no comercial.
+
+### Configuración
+
+Todo se puede definir con variables de entorno (en `appsettings` los `__` son `:`).
+
+| Variable | Para qué sirve |
+|---|---|
+| `ConnectionStrings__DefaultConnection` | Conexión a PostgreSQL |
+| `JwtSettings__SecretKey` | Clave que firma los tokens (64 caracteres o más, aleatoria) |
+| `VirusTotal__ApiKey` / `AbuseIPDB__ApiKey` | Claves de los servicios externos (opcionales) |
+| `DataProtection__KeysPath` | Carpeta persistente para las claves de cifrado del 2FA |
+| `Database__MigrateOnStartup` | `true` aplica las migraciones al arrancar (apagado por defecto; Docker Compose lo enciende) |
+| `ForwardedHeaders__Enabled` y `ForwardedHeaders__KnownProxies__0` | Detrás de un proxy inverso, lee la IP real del cliente, y **solo** si la petición viene de un proxy listado |
+| `Cors__AllowedOrigins__0` | Origen permitido para un frontend (cerrado por defecto) |
 
 ## Hoja de ruta
 
@@ -148,8 +208,9 @@ Sin las claves de VirusTotal y AbuseIPDB, la API funciona igual: esas consultas 
 - [x] Auditor de contraseñas (Have I Been Pwned)
 - [x] Detector de amenazas: URLs, archivos, IPs y cabeceras de correo
 - [x] Reporte final con puntaje de riesgo
+- [x] Pruebas automáticas, integración continua, Docker y logs estructurados
+- [ ] Despliegue público
 - [ ] Huella digital (OSINT sobre cuentas propias)
 - [ ] Auditor de red y wifi propios
 - [ ] Escáner de vulnerabilidades web para sitios propios
 - [ ] Detección de dispositivos IoT propios expuestos
-- [ ] Pruebas automáticas, CI/CD y despliegue
