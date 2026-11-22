@@ -1,5 +1,7 @@
 # ShadowAudit API
 
+[![CI](https://github.com/keo-sudo/ShadowAudit.API/actions/workflows/ci.yml/badge.svg)](https://github.com/keo-sudo/ShadowAudit.API/actions/workflows/ci.yml)
+
 API de auditoría de exposición digital. Responde con datos reales a una pregunta: **¿qué tan expuesto estoy ante un atacante?**
 
 Todo se audita sobre **cuentas y dispositivos propios**, de forma ética y legal. El proyecto no incluye acceso a cámaras ajenas, rastreo de terceros ni reconocimiento facial de terceros.
