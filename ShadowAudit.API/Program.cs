@@ -4,9 +4,11 @@ using Microsoft.EntityFrameworkCore;
 using ShadowAudit.API.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
+using System.Net;
 using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -281,6 +283,43 @@ builder.Services.AddOpenApi(options =>
 });
 
 var app = builder.Build();
+
+// Aplicar las migraciones al arrancar. Está APAGADO por defecto: solo se activa con
+// "Database:MigrateOnStartup" = true (el docker-compose lo enciende). En desarrollo local
+// sigues usando Update-Database como siempre.
+if (app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ShadowAuditDbContext>();
+    db.Database.Migrate();
+}
+
+// Detrás de un proxy inverso (Nginx, Caddy, un balanceador...) la IP que ve la API sería la del proxy,
+// y el límite de solicitudes por IP quedaría roto. Con esta opción se lee la IP real del cliente
+// (X-Forwarded-For), pero SOLO si la petición llega desde un proxy que tú listaste.
+// Apagado por defecto. Para activarlo:
+//   "ForwardedHeaders": { "Enabled": true, "KnownProxies": [ "10.0.0.5" ] }
+// Actívalo solo si la API únicamente es alcanzable a través de ese proxy.
+if (app.Configuration.GetValue<bool>("ForwardedHeaders:Enabled"))
+{
+    var forwardedOptions = new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+        ForwardLimit = 1
+    };
+
+    var knownProxies = app.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>()
+                       ?? Array.Empty<string>();
+    foreach (var proxy in knownProxies)
+    {
+        if (IPAddress.TryParse(proxy, out var proxyIp))
+        {
+            forwardedOptions.KnownProxies.Add(proxyIp);
+        }
+    }
+
+    app.UseForwardedHeaders(forwardedOptions);
+}
 
 // Headers de seguridad en todas las respuestas
 app.Use(async (context, next) =>
