@@ -8,6 +8,9 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
+using Serilog;
+using Serilog.Events;
+using Serilog.Formatting.Compact;
 using System.Net;
 using System.Security.Claims;
 using System.Text;
@@ -18,6 +21,30 @@ var builder = WebApplication.CreateBuilder(args);
 
 // No revelar el servidor en el header "Server"
 builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
+
+// Logs con Serilog. En desarrollo: texto legible. En producción: JSON (una línea por evento).
+// Privacidad: NUNCA se registran cuerpos de peticiones ni query strings (contraseñas, tokens, datos
+// consultados). Los logs de HttpClient quedan en Warning porque a nivel Information escriben la URL
+// completa de cada consulta saliente (por ejemplo, qué URL o hash se consultó en VirusTotal).
+builder.Host.UseSerilog((context, services, configuration) =>
+{
+    configuration
+        .MinimumLevel.Information()
+        .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+        .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Warning)
+        .MinimumLevel.Override("System.Net.Http.HttpClient", LogEventLevel.Warning)
+        .Enrich.FromLogContext()
+        .Enrich.WithProperty("Application", "ShadowAudit.API");
+
+    if (context.HostingEnvironment.IsDevelopment())
+    {
+        configuration.WriteTo.Console();
+    }
+    else
+    {
+        configuration.WriteTo.Console(new RenderedCompactJsonFormatter());
+    }
+});
 
 // Add services to the container.
 
@@ -372,6 +399,17 @@ app.UseExceptionHandler(errorApp =>
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
         await context.Response.WriteAsJsonAsync(new { message = "Error interno del servidor." });
     });
+});
+
+// Una línea de log por petición: método, ruta (sin query string), estado, duración e IP del cliente.
+// Va después del manejador de errores para que un 500 quede registrado como error.
+app.UseSerilogRequestLogging(options =>
+{
+    options.MessageTemplate = "{RequestMethod} {RequestPath} respondió {StatusCode} en {Elapsed:0} ms";
+    options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
+    {
+        diagnosticContext.Set("ClientIp", httpContext.Connection.RemoteIpAddress?.ToString());
+    };
 });
 
 // Configure the HTTP request pipeline.
