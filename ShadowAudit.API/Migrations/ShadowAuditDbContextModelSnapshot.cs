@@ -168,6 +168,42 @@ namespace ShadowAudit.API.Migrations
                     b.ToTable("RefreshTokens");
                 });
 
+            modelBuilder.Entity("ShadowAudit.API.Models.Site", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Host")
+                        .IsRequired()
+                        .HasMaxLength(253)
+                        .HasColumnType("character varying(253)");
+
+                    b.Property<DateTime?>("LastScanAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VerificationToken")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("VerifiedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Host")
+                        .IsUnique();
+
+                    b.ToTable("Sites");
+                });
+
             modelBuilder.Entity("ShadowAudit.API.Models.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -237,6 +273,15 @@ namespace ShadowAudit.API.Migrations
                 });
 
             modelBuilder.Entity("ShadowAudit.API.Models.RefreshToken", b =>
+                {
+                    b.HasOne("ShadowAudit.API.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ShadowAudit.API.Models.Site", b =>
                 {
                     b.HasOne("ShadowAudit.API.Models.User", null)
                         .WithMany()

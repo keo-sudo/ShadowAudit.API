@@ -309,6 +309,8 @@ builder.Services.AddOpenApi(options =>
     });
 });
 
+ShadowAudit.API.Services.WebScannerSetup.AddWebScanner(builder.Services);
+
 var app = builder.Build();
 
 // Aplicar las migraciones al arrancar. Está APAGADO por defecto: solo se activa con

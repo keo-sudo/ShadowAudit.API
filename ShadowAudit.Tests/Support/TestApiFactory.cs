@@ -1,22 +1,48 @@
-﻿using System.Net;
+using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using ShadowAudit.API.Services;
 
 namespace ShadowAudit.Tests.Support;
 
 // La API completa, en memoria. Cada cliente de prueba simula venir de una IP distinta
 // (cabecera X-Test-Ip) para que los limites de solicitudes por IP no se mezclen entre pruebas.
+// El escaner web usa DNS, TLS y HTTP falsos: nunca sale a internet.
 public sealed class TestApiFactory : WebApplicationFactory<Program>
 {
     private static int _ipCounter;
+
+    public FakeDnsTxtResolver Dns { get; } = new();
+
+    public FakeTlsProbe Tls { get; } = new();
+
+    public Func<SentRequest, HttpResponseMessage> SiteResponder { get; set; } = FakeSites.Healthy;
+
+    public FakeHttpHandler SiteHandler { get; }
+
+    public TestApiFactory()
+    {
+        SiteHandler = new FakeHttpHandler(request => SiteResponder(request));
+        WebScanner.DefaultProbeDelay = TimeSpan.Zero;
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.ConfigureServices(services =>
         {
             services.AddTransient<IStartupFilter, TestIpStartupFilter>();
+        });
+
+        builder.ConfigureTestServices(services =>
+        {
+            services.AddSingleton<IDnsTxtResolver>(Dns);
+            services.AddSingleton<ITlsProbe>(Tls);
+            services.AddHttpClient<SiteProbe>()
+                .ConfigurePrimaryHttpMessageHandler(() => SiteHandler)
+                .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
         });
     }
 

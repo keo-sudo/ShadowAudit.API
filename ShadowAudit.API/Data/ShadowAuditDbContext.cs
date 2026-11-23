@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using ShadowAudit.API.Models;
 
 namespace ShadowAudit.API.Data;
@@ -19,6 +19,8 @@ public class ShadowAuditDbContext : DbContext
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     public DbSet<ExposureFinding> ExposureFindings => Set<ExposureFinding>();
+
+    public DbSet<Site> Sites => Set<Site>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -71,6 +73,17 @@ public class ShadowAuditDbContext : DbContext
             e.HasOne<User>()
                 .WithMany()
                 .HasForeignKey(f => f.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Site>(e =>
+        {
+            e.Property(s => s.Host).HasMaxLength(253).IsRequired();
+            e.Property(s => s.VerificationToken).HasMaxLength(64).IsRequired();
+            e.HasIndex(s => new { s.UserId, s.Host }).IsUnique();
+            e.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(s => s.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

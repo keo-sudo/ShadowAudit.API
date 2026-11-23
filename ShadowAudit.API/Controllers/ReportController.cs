@@ -1,4 +1,4 @@
-﻿using System.IdentityModel.Tokens.Jwt;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -20,7 +20,8 @@ public class ReportController : ControllerBase
         [FindingSource.Url] = "No abras los enlaces marcados y avisa a quien te los envió.",
         [FindingSource.File] = "No abras ni ejecutes los archivos marcados: bórralos y pasa un antivirus.",
         [FindingSource.Email] = "No respondas ni abras enlaces de los correos sospechosos; repórtalos como phishing.",
-        [FindingSource.Ip] = "Revisa de dónde viene la conexión de las IPs marcadas y bloquéalas si puedes."
+        [FindingSource.Ip] = "Revisa de dónde viene la conexión de las IPs marcadas y bloquéalas si puedes.",
+        [FindingSource.Web] = "Corrige en tu sitio web las fallas marcadas como altas o medias: HTTPS, certificado, cabeceras de seguridad y archivos expuestos."
     };
 
     private readonly ShadowAuditDbContext _db;
