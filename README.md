@@ -19,7 +19,6 @@ Todo se audita sobre **cuentas, dispositivos y sitios propios**, de forma ética
 | **Auditor de contraseñas** | Comprueba si una contraseña apareció en filtraciones reales (Have I Been Pwned) y estima su fortaleza. |
 | **Detector de amenazas** | Analiza URLs y huellas de archivos con VirusTotal, la reputación de una IP con AbuseIPDB, y cabeceras de correo para detectar phishing (SPF, DKIM, DMARC y suplantación). |
 | **Escáner web** | Revisión pasiva y liviana de sitios propios (HTTPS, certificado, cabeceras de seguridad, cookies y archivos expuestos). Solo funciona si demuestras que el sitio es tuyo. |
-| **Escáner web** | Revisión pasiva de sitios propios (HTTPS, certificado, cabeceras, cookies y archivos expuestos). Solo funciona si demuestras que el sitio es tuyo. |
 | **Reporte de exposición** | Junta los resultados que el usuario decide guardar en un puntaje de 0 a 100, con lo más urgente primero y recomendaciones. |
 
 ### Endpoints
@@ -44,11 +43,6 @@ Todo se audita sobre **cuentas, dispositivos y sitios propios**, de forma ética
 | GET | `/api/threats/file/{sha256}` | Consultar la huella de un archivo (el archivo nunca se sube) |
 | POST | `/api/threats/email-headers` | Analizar las cabeceras de un correo (SPF, DKIM, DMARC y suplantación) |
 | GET | `/api/threats/ip/{ip}` | Consultar la reputación de una IP pública |
-| GET | `/api/sites` | Lista de tus sitios registrados y si están verificados |
-| POST | `/api/sites` | Registrar un sitio propio (entrega las instrucciones de verificación) |
-| POST | `/api/sites/{id}/verify` | Verificar que el sitio es tuyo (registro DNS o archivo) |
-| POST | `/api/sites/{id}/scan` | Escanear un sitio verificado (`?label=` guarda el resultado como hallazgo) |
-| DELETE | `/api/sites/{id}` | Borrar un sitio |
 | GET | `/api/sites` | Lista de tus sitios registrados y si están verificados |
 | POST | `/api/sites` | Registrar un sitio propio (entrega las instrucciones de verificación) |
 | POST | `/api/sites/{id}/verify` | Verificar que el sitio es tuyo (registro DNS o archivo) |
@@ -93,15 +87,6 @@ Cada revisión sale como `pasa` o `falla`, con gravedad (bajo, medio o alto) y c
 - **Límites:** hasta 5 sitios por usuario, 3 escaneos por hora y 10 verificaciones cada 10 minutos por IP. Entre prueba y prueba de archivos hay una pausa corta para no cargar el sitio.
 - **Auditoría sin el dominio:** el registro solo anota la acción (`SiteAdd`, `SiteVerify`, `SiteVerifyFailed`, `SiteScan`, `SiteDelete`).
 
-## Escáner web de sitios propios
-
-Escáner **pasivo y liviano**: solo peticiones de lectura (GET), sin ataques ni inyecciones. No reemplaza una auditoría completa.
-
-- **Verificación de propiedad:** al registrar un sitio recibes un token aleatorio. Lo demuestras con un registro DNS TXT (`_shadowaudit-verify.tu-dominio.com` = `shadowaudit-verify=<token>`) o con un archivo en `/.well-known/shadowaudit-verify.txt`. Dura 30 días.
-- **Qué revisa:** HTTPS y certificado (vencimiento, confianza, versión de TLS), redirección de HTTP a HTTPS, cabeceras de seguridad, cookies (Secure, HttpOnly, SameSite) y archivos sensibles expuestos (`/.env`, `/.git/HEAD`, copias de seguridad, etc.), sin devolver nunca su contenido.
-- **Protección SSRF:** nunca se conecta a direcciones privadas o internas (se valida al conectar), solo usa los puertos 80 y 443 y solo sigue redirecciones dentro del mismo sitio.
-- **Límites:** 5 sitios por usuario, 3 escaneos por hora y 10 verificaciones cada 10 minutos por IP.
-- **Privacidad:** el resultado del escaneo no se guarda. Con `?label=` se guarda solo un hallazgo (fuente `web`, riesgo y tu etiqueta, que no puede contener el dominio). La auditoría anota la acción, nunca el dominio.
 ## Reporte y puntaje de riesgo
 
 Las consultas de contraseñas, URLs, archivos, correos, IPs y escaneos web aceptan un campo opcional `label`. Si lo envías, el resultado se guarda como **hallazgo** para el reporte; si no, no se guarda nada.
