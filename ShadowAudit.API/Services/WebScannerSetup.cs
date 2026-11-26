@@ -16,6 +16,7 @@ public static class WebScannerSetup
 
         services.AddScoped<OwnershipVerifier>();
         services.AddScoped<WebScanner>();
+        services.AddScoped<FootprintChecker>();
 
         return services;
     }

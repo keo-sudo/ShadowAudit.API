@@ -21,7 +21,8 @@ public class ReportController : ControllerBase
         [FindingSource.File] = "No abras ni ejecutes los archivos marcados: bórralos y pasa un antivirus.",
         [FindingSource.Email] = "No respondas ni abras enlaces de los correos sospechosos; repórtalos como phishing.",
         [FindingSource.Ip] = "Revisa de dónde viene la conexión de las IPs marcadas y bloquéalas si puedes.",
-        [FindingSource.Web] = "Corrige en tu sitio web las fallas marcadas como altas o medias: HTTPS, certificado, cabeceras de seguridad y archivos expuestos."
+        [FindingSource.Web] = "Corrige en tu sitio web las fallas marcadas como altas o medias: HTTPS, certificado, cabeceras de seguridad y archivos expuestos.",
+        [FindingSource.Footprint] = "Revisa tus perfiles públicos: borra las cuentas que ya no uses y limita lo que muestran."
     };
 
     private readonly ShadowAuditDbContext _db;
