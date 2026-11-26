@@ -87,6 +87,22 @@ Cada revisión sale como `pasa` o `falla`, con gravedad (bajo, medio o alto) y c
 - **Límites:** hasta 5 sitios por usuario, 3 escaneos por hora y 10 verificaciones cada 10 minutos por IP. Entre prueba y prueba de archivos hay una pausa corta para no cargar el sitio.
 - **Auditoría sin el dominio:** el registro solo anota la acción (`SiteAdd`, `SiteVerify`, `SiteVerifyFailed`, `SiteScan`, `SiteDelete`).
 
+## Módulos de análisis de datos propios
+
+Estos módulos no escanean nada por sí mismos: analizan datos que el usuario aporta sobre sus propias cuentas y dispositivos. Lo pegado no se guarda; solo se guarda un hallazgo (sin el dato consultado) si se envía una etiqueta `label`.
+
+### Huella digital (OSINT)
+- `POST /api/footprint/username`: revisa si un nombre de usuario propio existe en GitHub, GitLab, DEV, Keybase y Codeberg.
+- Cada sitio responde `existe`, `no_existe` o `indeterminado` (si el sitio bloquea o redirige). Límite: 5 consultas por hora por IP.
+
+### Red y wifi
+- `POST /api/network/wifi`: analiza la salida de `netsh wlan show interfaces`.
+- `POST /api/network/ports`: analiza la salida de `netstat -an`.
+
+### Dispositivos IoT
+- `POST /api/iot/ports`: analiza la salida de `nmap` sobre un dispositivo propio.
+- Riesgo alto: puertos 21, 23, 5555 y 37777. Riesgo medio: 554, 1883 y 8000.
+
 ## Reporte y puntaje de riesgo
 
 Las consultas de contraseñas, URLs, archivos, correos, IPs y escaneos web aceptan un campo opcional `label`. Si lo envías, el resultado se guarda como **hallazgo** para el reporte; si no, no se guarda nada.
@@ -253,6 +269,6 @@ Todo se puede definir con variables de entorno (en `appsettings` los `__` son `:
 - [x] Pruebas automáticas, integración continua, Docker y logs estructurados
 - [x] Escáner web pasivo para sitios propios (con verificación de propiedad)
 - [ ] Despliegue público
-- [ ] Huella digital (OSINT sobre cuentas propias)
-- [ ] Auditor de red y wifi propios
-- [ ] Detección de dispositivos IoT propios expuestos
+- [x] Huella digital (OSINT sobre cuentas propias)
+- [x] Auditor de red y wifi propios
+- [x] Detección de dispositivos IoT propios expuestos
