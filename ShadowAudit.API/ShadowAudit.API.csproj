@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -27,4 +27,7 @@
     <PackageReference Include="Serilog.AspNetCore" Version="11.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Data\wmn-data.json" LogicalName="wmn-data.json" />
+  </ItemGroup>
 </Project>

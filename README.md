@@ -92,8 +92,10 @@ Cada revisión sale como `pasa` o `falla`, con gravedad (bajo, medio o alto) y c
 Estos módulos no escanean nada por sí mismos: analizan datos que el usuario aporta sobre sus propias cuentas y dispositivos. Lo pegado no se guarda; solo se guarda un hallazgo (sin el dato consultado) si se envía una etiqueta `label`.
 
 ### Huella digital (OSINT)
-- `POST /api/footprint/username`: revisa si un nombre de usuario propio existe en GitHub, GitLab, DEV, Keybase y Codeberg.
-- Cada sitio responde `existe`, `no_existe` o `indeterminado` (si el sitio bloquea o redirige). Límite: 5 consultas por hora por IP.
+- `POST /api/footprint/username`: revisa si un nombre de usuario propio existe en unos 550 sitios (redes, juegos, tecnología, programación, etc.) usando la lista abierta WhatsMyName. Acepta un filtro opcional `categories`.
+- Cada sitio responde `existe`, `no_existe` o `indeterminado` (el sitio bloquea, redirige o no responde). Límite: 5 consultas por hora por IP.
+- La respuesta incluye `found` (sitios donde existe, con enlace), `unclear` y `manual`: enlaces para revisar a mano las redes que bloquean consultas automáticas (Instagram, TikTok, X, Facebook, etc.).
+- Limitaciones: la detección depende de las reglas de cada sitio, así que puede haber falsos positivos y muchos resultados `indeterminado`. Se excluyen sitios de contenido adulto, archivados y los que exigen cabeceras especiales o protección anti-bots.
 
 ### Red y wifi
 - `POST /api/network/wifi`: analiza la salida de `netsh wlan show interfaces`.
@@ -259,6 +261,10 @@ Todo se puede definir con variables de entorno (en `appsettings` los `__` son `:
 | `Database__MigrateOnStartup` | `true` aplica las migraciones al arrancar (apagado por defecto; Docker Compose lo enciende) |
 | `ForwardedHeaders__Enabled` y `ForwardedHeaders__KnownProxies__0` | Detrás de un proxy inverso, lee la IP real del cliente, y **solo** si la petición viene de un proxy listado |
 | `Cors__AllowedOrigins__0` | Origen permitido para un frontend (cerrado por defecto) |
+
+## Créditos
+
+La lista de sitios del módulo de huella digital proviene de [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) (licencia CC BY-SA 4.0) y se incluye en `ShadowAudit.API/Data/wmn-data.json`. Ese archivo conserva su licencia original.
 
 ## Hoja de ruta
 

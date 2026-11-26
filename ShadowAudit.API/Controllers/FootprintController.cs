@@ -16,7 +16,8 @@ public record FootprintRequest(
     string Username,
 
     [StringLength(100, ErrorMessage = "La etiqueta no puede pasar de 100 caracteres.")]
-    string? Label = null);
+    string? Label = null,
+    string[]? Categories = null);
 
 [ApiController]
 [Authorize]
@@ -45,8 +46,10 @@ public class FootprintController : ControllerBase
 
         var labelError = FindingStore.ValidateLabel(request.Label, out var label, request.Username);
         if (labelError is not null) return BadRequest(new { message = labelError });
+            if (request.Categories is { Length: > 0 } && request.Categories.Any(c => !FootprintCatalog.Categories.Contains(c, StringComparer.OrdinalIgnoreCase)))
+                return BadRequest(new { message = "Categoria no valida.", valid = FootprintCatalog.Categories });
 
-        var results = await _checker.CheckAsync(request.Username, ct);
+        var results = await _checker.CheckAsync(request.Username, ct, request.Categories);
         var risk = FootprintChecker.Risk(results);
 
         await WriteAudit(uid);
@@ -59,7 +62,10 @@ public class FootprintController : ControllerBase
         {
             risk,
             found = results.Count(r => r.Status == "existe"),
-            results = results.Select(r => new { site = r.Site, status = r.Status }),
+            total = results.Count,
+                unclear = results.Count(r => r.Status == "indeterminado"),
+                manual = FootprintChecker.ManualLinks(request.Username),
+                results = results.Where(r => r.Status == "existe").Select(r => new { site = r.Site, category = r.Category, url = r.Url }),
             note = "Usa solo tus propios nombres de usuario. 'indeterminado' significa que el sitio no dio una respuesta clara (bloqueo, redirección o error). El nombre de usuario consultado no se guarda.",
             finding
         });

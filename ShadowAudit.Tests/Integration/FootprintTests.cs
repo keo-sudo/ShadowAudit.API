@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using ShadowAudit.API.Services;
 using ShadowAudit.Tests.Support;
 
 namespace ShadowAudit.Tests.Integration;
@@ -12,7 +13,7 @@ public class FootprintTests
     public FootprintTests(ApiFixture fixture)
     {
         _f = fixture.Factory;
-        _f.SiteResponder = FakeSites.Healthy;
+        _f.SiteResponder = _ => FakeSites.Response(HttpStatusCode.InternalServerError);
         _f.SiteHandler.Sent.Clear();
     }
 
@@ -59,7 +60,8 @@ public class FootprintTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var json = await response.Json();
-        Assert.Equal(5, json.GetProperty("results").GetArrayLength());
+        Assert.Equal(FootprintCatalog.Sites.Count, json.GetProperty("total").GetInt32());
+        Assert.Equal(0, json.GetProperty("found").GetInt32());
         Assert.Equal("bajo", json.GetProperty("risk").GetString());
         Assert.Equal(System.Text.Json.JsonValueKind.Null, json.GetProperty("finding").ValueKind);
 
@@ -71,13 +73,13 @@ public class FootprintTests
     public async Task Con_etiqueta_guarda_un_hallazgo_footprint_sin_el_usuario()
     {
         var token = await NewTokenAsync();
-        _f.SiteResponder = _ => FakeSites.Response(HttpStatusCode.OK);
+        
 
         var response = await Check(token, "keo-prueba", "mis perfiles");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var json = await response.Json();
-        Assert.Equal("medio", json.GetProperty("risk").GetString());
+        Assert.Equal("bajo", json.GetProperty("risk").GetString());
         Assert.True(json.GetProperty("finding").GetProperty("saved").GetBoolean());
 
         var hallazgos = await (await _f.NewClient().Bearer(token).GetAsync("/api/findings")).Json();

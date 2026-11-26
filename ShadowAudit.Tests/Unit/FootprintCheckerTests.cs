@@ -8,6 +8,13 @@ namespace ShadowAudit.Tests.Unit;
 
 public class FootprintCheckerTests
 {
+    private static readonly FootprintSite Sitio = new(
+        "Sitio", "https://sitio.test/{account}", "https://sitio.test/{account}", "social",
+        200, "perfil", 404, "no encontrado", "");
+
+    private static ProbeResponse Resp(int code, string body = "") =>
+        new(code, new Dictionary<string, string>(), new List<string>(), body, null);
+
     private static (FootprintChecker Checker, FakeHttpHandler Handler) Build(Func<SentRequest, HttpResponseMessage> responder)
     {
         var handler = new FakeHttpHandler(responder);
@@ -37,43 +44,47 @@ public class FootprintCheckerTests
         Assert.False(UsernameRules.IsValid(usuario));
 
     [Fact]
-    public async Task Traduce_el_estado_http_a_existe_no_existe_o_indeterminado()
+    public void Clasifica_segun_codigo_y_texto_de_la_pagina()
     {
-        var (checker, _) = Build(r => r.Uri.Host switch
-        {
-            "github.com" => FakeHttpHandler.Response(HttpStatusCode.OK),
-            "gitlab.com" => FakeHttpHandler.Response(HttpStatusCode.NotFound),
-            "dev.to" => FakeHttpHandler.Response(HttpStatusCode.Forbidden),
-            _ => throw new HttpRequestException("sin respuesta")
-        });
-
-        var results = await checker.CheckAsync("keo", CancellationToken.None);
-
-        Assert.Equal("existe", results.Single(r => r.Site == "GitHub").Status);
-        Assert.Equal("no_existe", results.Single(r => r.Site == "GitLab").Status);
-        Assert.Equal("indeterminado", results.Single(r => r.Site == "DEV Community").Status);
-        Assert.Equal("indeterminado", results.Single(r => r.Site == "Keybase").Status);
+        Assert.Equal("existe", FootprintChecker.Classify(Sitio, Resp(200, "hola perfil de keo")));
+        Assert.Equal("no_existe", FootprintChecker.Classify(Sitio, Resp(404, "no encontrado")));
+        Assert.Equal("indeterminado", FootprintChecker.Classify(Sitio, Resp(404, "")));
+        Assert.Equal("indeterminado", FootprintChecker.Classify(Sitio, Resp(200, "pagina cualquiera")));
+        Assert.Equal("indeterminado", FootprintChecker.Classify(Sitio, Resp(403, "perfil")));
+        Assert.Equal("indeterminado", FootprintChecker.Classify(Sitio, null));
     }
 
     [Fact]
-    public async Task Hace_una_peticion_https_por_sitio_y_escapa_el_usuario()
+    public void El_catalogo_carga_cientos_de_sitios_seguros()
+    {
+        var sites = FootprintCatalog.Sites;
+
+        Assert.True(sites.Count >= 100);
+        Assert.All(sites, s => Assert.StartsWith("https://", s.UrlTemplate));
+        Assert.All(sites, s => Assert.Contains("{account}", s.UrlTemplate));
+        Assert.DoesNotContain(sites, s => s.Category == "xx NSFW xx" || s.Category == "archived");
+    }
+
+    [Fact]
+    public async Task Hace_una_peticion_https_por_sitio_con_el_usuario()
     {
         var (checker, handler) = Build(_ => FakeHttpHandler.Response(HttpStatusCode.NotFound));
 
-        await checker.CheckAsync("a.b", CancellationToken.None);
+        await checker.CheckAsync("keo", CancellationToken.None);
 
-        Assert.Equal(FootprintChecker.Sites.Count, handler.Sent.Count);
+        Assert.Equal(FootprintCatalog.Sites.Count, handler.Sent.Count);
         Assert.All(handler.Sent, r => Assert.Equal("https", r.Uri.Scheme));
-        Assert.All(handler.Sent, r => Assert.EndsWith("/a.b", r.Uri.AbsolutePath));
+        Assert.All(handler.Sent, r => Assert.Contains("keo", r.Uri.AbsoluteUri));
     }
 
     [Fact]
-    public void El_riesgo_sube_a_medio_con_3_o_mas_sitios()
+    public void El_riesgo_sube_a_medio_con_10_o_mas_sitios()
     {
-        var tres = new[] { new FootprintResult("A", "existe"), new FootprintResult("B", "existe"), new FootprintResult("C", "existe") };
-        var dos = new[] { new FootprintResult("A", "existe"), new FootprintResult("B", "existe"), new FootprintResult("C", "no_existe") };
+        var diez = Enumerable.Range(0, 10).Select(i => new FootprintResult($"S{i}", "existe")).ToArray();
+        var nueve = Enumerable.Range(0, 9).Select(i => new FootprintResult($"S{i}", "existe"))
+            .Append(new FootprintResult("Z", "no_existe")).ToArray();
 
-        Assert.Equal(RiskLevels.Medium, FootprintChecker.Risk(tres));
-        Assert.Equal(RiskLevels.Low, FootprintChecker.Risk(dos));
+        Assert.Equal(RiskLevels.Medium, FootprintChecker.Risk(diez));
+        Assert.Equal(RiskLevels.Low, FootprintChecker.Risk(nueve));
     }
 }
