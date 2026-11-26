@@ -31,4 +31,5 @@ public static class FindingSource
     public const string Web = "web";
     public const string Footprint = "footprint";
     public const string Network = "network";
+    public const string Iot = "iot";
 }
