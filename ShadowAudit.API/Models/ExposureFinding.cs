@@ -33,4 +33,5 @@ public static class FindingSource
     public const string Network = "network";
     public const string Iot = "iot";
     public const string Location = "location";
+    public const string Access = "access";
 }

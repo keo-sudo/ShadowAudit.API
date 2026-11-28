@@ -25,6 +25,7 @@ public class ReportController : ControllerBase
         [FindingSource.Network] = "Revisa la seguridad de tu wifi (usa WPA2 o WPA3) y cierra los puertos abiertos que no necesites.",
         [FindingSource.Iot] = "Cambia las contraseñas de fábrica de tus cámaras y routers, actualízalos y cierra los puertos que no uses (Telnet, FTP, ADB).",
         [FindingSource.Location] = "Borra los datos de ubicación de tus fotos antes de compartirlas y desactiva el GPS en la cámara del celular.",
+        [FindingSource.Access] = "Si ves accesos que no reconoces, cambia tu contraseña, cierra todas las sesiones (logout-all) y activa el 2FA.",
         [FindingSource.Footprint] = "Revisa tus perfiles públicos: borra las cuentas que ya no uses y limita lo que muestran."
     };
 

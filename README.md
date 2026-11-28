@@ -109,6 +109,11 @@ Estos módulos no escanean nada por sí mismos: analizan datos que el usuario ap
 - `POST /api/location/exif`: recibe una foto tuya (JPG, PNG, HEIC, TIFF o WebP, hasta 10 MB) y lee sus metadatos ocultos.
 - Avisa si trae coordenadas GPS (riesgo alto, con enlace al mapa), nombre de autor (medio) o solo modelo del dispositivo y fecha (bajo). La imagen y las coordenadas no se guardan.
 
+### Accesos a tu cuenta
+- `POST /api/access/review`: revisa solo, sin que pegues nada, el registro de accesos de tu cuenta de ShadowAudit (cuerpo opcional: `days` de 7 a 90 y `label`).
+- Avisa de IPs o navegadores nuevos en los últimos 7 días (si ya hay historial anterior), 5 o más intentos fallidos en 24 horas, 3 o más IPs distintas en una hora y reutilización de tokens de sesión. Las IPs se muestran con el último número oculto.
+- Limitaciones: solo cubre los accesos a ShadowAudit, no a otras cuentas (Google, Microsoft, etc.), y no calcula el país de cada IP.
+
 ## Reporte y puntaje de riesgo
 
 Las consultas de contraseñas, URLs, archivos, correos, IPs y escaneos web aceptan un campo opcional `label`. Si lo envías, el resultado se guarda como **hallazgo** para el reporte; si no, no se guarda nada.
