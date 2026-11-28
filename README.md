@@ -105,6 +105,10 @@ Estos módulos no escanean nada por sí mismos: analizan datos que el usuario ap
 - `POST /api/iot/ports`: analiza la salida de `nmap` sobre un dispositivo propio.
 - Riesgo alto: puertos 21, 23, 5555 y 37777. Riesgo medio: 554, 1883 y 8000.
 
+### Ubicación en fotos (EXIF)
+- `POST /api/location/exif`: recibe una foto tuya (JPG, PNG, HEIC, TIFF o WebP, hasta 10 MB) y lee sus metadatos ocultos.
+- Avisa si trae coordenadas GPS (riesgo alto, con enlace al mapa), nombre de autor (medio) o solo modelo del dispositivo y fecha (bajo). La imagen y las coordenadas no se guardan.
+
 ## Reporte y puntaje de riesgo
 
 Las consultas de contraseñas, URLs, archivos, correos, IPs y escaneos web aceptan un campo opcional `label`. Si lo envías, el resultado se guarda como **hallazgo** para el reporte; si no, no se guarda nada.
