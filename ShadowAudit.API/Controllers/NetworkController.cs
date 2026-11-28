@@ -48,6 +48,22 @@ public class NetworkController : ControllerBase
         return await Finish(request.Label, audit.Risk, new { risk = audit.Risk, riskyPorts = audit.RiskyPorts, advice = audit.Advice }, ct);
     }
 
+    [HttpPost("devices")]
+    [RequestSizeLimit(65536)]
+    [SiteRateLimit("network", 20, 60)]
+    public async Task<IActionResult> Devices([FromBody] NetworkDevicesRequest request, CancellationToken ct)
+    {
+        if (request.KnownMacs?.Any(m => DeviceAudit.NormalizeMac(m) is null) == true)
+            return BadRequest(new { message = "Alguna MAC conocida no es válida. Usa el formato aa-bb-cc-dd-ee-ff." });
+
+        var audit = DeviceAudit.Analyze(request.Output, request.KnownMacs);
+        if (audit is null)
+            return BadRequest(new { message = "No encontré dispositivos. Pega la salida completa de: arp -a" });
+
+        return await Finish(request.Label, audit.Risk,
+            new { risk = audit.Risk, total = audit.Total, unknown = audit.Unknown, sharedMacs = audit.SharedMacs, devices = audit.Devices, advice = audit.Advice }, ct);
+    }
+
     private async Task<IActionResult> Finish(string? rawLabel, string risk, object result, CancellationToken ct)
     {
         var value = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue(JwtRegisteredClaimNames.Sub);

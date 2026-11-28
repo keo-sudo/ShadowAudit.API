@@ -100,6 +100,8 @@ Estos módulos no escanean nada por sí mismos: analizan datos que el usuario ap
 ### Red y wifi
 - `POST /api/network/wifi`: analiza la salida de `netsh wlan show interfaces`.
 - `POST /api/network/ports`: analiza la salida de `netstat -an`.
+- `POST /api/network/devices`: analiza la salida de `arp -a` y lista los dispositivos de tu red (sin difusión ni multicast). Si envías `knownMacs` con las MAC que reconoces, marca los desconocidos. También avisa si dos IPs comparten la misma MAC.
+- Limitación: solo aparecen los dispositivos con los que tu PC habló recientemente; el consumo de internet por dispositivo solo lo muestra el router.
 
 ### Dispositivos IoT
 - `POST /api/iot/ports`: analiza la salida de `nmap` sobre un dispositivo propio.
